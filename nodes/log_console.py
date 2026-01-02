@@ -90,11 +90,11 @@ class LogListener:
     def append_handler(self, handler: SSEHandler):
         if not handler.is_connected:
             return
-        print(f"[LogConsole] client [{handler.client_id}], console [{handler.console_id}], connected")
+        # print(f"[LogConsole] client [{handler.client_id}], console [{handler.console_id}], connected")
         self.handlers.append(handler)
 
     def __remove_disconnected_handler(self, handler: SSEHandler):
-        print(f"[LogConsole] client [{handler.client_id}], console [{handler.console_id}], disconnected")
+        # print(f"[LogConsole] client [{handler.client_id}], console [{handler.console_id}], disconnected")
         self.handlers.remove(handler)
 
     async def handle(self, record):
@@ -116,7 +116,8 @@ class LogListener:
                 await self.handle(record)
                 q.task_done()
             except Exception as e:
-                print(f"QueueListener._monitor fail: {e}")
+                pass
+                # print(f"QueueListener._monitor fail: {e}")
 
     def stop(self):
         if not self._task:
@@ -132,7 +133,7 @@ def start_log_catchers_if_needed():
     global LOG_CATCHERS
     if LOG_CATCHERS is not None:
         return
-    print("Start Log Catchers...")
+    # print("Start Log Catchers...")
     LOG_CATCHERS = []
     stdout_log_catcher = LogCatcher(sys, 'stdout', error=False)
     LOG_CATCHERS.append(stdout_log_catcher)
@@ -165,7 +166,7 @@ def stop_log_catchers_if_needed():
     global LOG_CATCHERS
     if LOG_CATCHERS is None:
         return
-    print("Stop Log Catchers...")
+    # print("Stop Log Catchers...")
     for catcher in LOG_CATCHERS:
         catcher.stop()
     LOG_CATCHERS = None
@@ -190,7 +191,7 @@ async def log_stream(request: web.Request) -> web.StreamResponse:
 async def disable_log_stream(request: web.Request) -> web.StreamResponse:
     client_id = request.query.get('client_id')
     console_id = request.query.get('console_id')
-    print(f"Disable Log Console. client id: {client_id}, console id: {console_id}")
+    # print(f"Disable Log Console. client id: {client_id}, console id: {console_id}")
     log_listener.stop()
     stop_log_catchers_if_needed()
 

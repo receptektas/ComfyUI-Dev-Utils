@@ -60,7 +60,7 @@ def handle_execute(class_type, last_node_id, prompt_id, server, unique_id):
 
         end_vram = get_peak_memory()
         vram_used = end_vram - start_vram
-        print(f"end_vram - start_vram: {end_vram} - {start_vram} = {vram_used}")
+        # print(f"end_vram - start_vram: {end_vram} - {start_vram} = {vram_used}")
         if server.client_id is not None and last_node_id != server.last_node_id:
             server.send_sync(
                 "TyDev-Utils.ExecutionTime.executed",
@@ -68,7 +68,7 @@ def handle_execute(class_type, last_node_id, prompt_id, server, unique_id):
                  "vram_used": vram_used},
                 server.client_id
             )
-        print(f"#{unique_id} [{class_type}]: {execution_time:.2f}s - vram {vram_used}b")
+        # print(f"#{unique_id} [{class_type}]: {execution_time:.2f}s - vram {vram_used}b")
 
 
 try:
