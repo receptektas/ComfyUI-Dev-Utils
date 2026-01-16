@@ -4,6 +4,8 @@ import {$el} from "../../scripts/ui.js";
 
 // region: Refresh Timer
 let refreshTimer = null;
+let executionStartTime = null;
+let currentExecutingNodeId = null;  // Track currently executing node
 
 function stopRefreshTimer() {
     if (!refreshTimer) {
@@ -15,9 +17,93 @@ function stopRefreshTimer() {
 
 function startRefreshTimer() {
     stopRefreshTimer();
+    executionStartTime = LiteGraph.getTime();
     refreshTimer = setInterval(function () {
         app.graph.setDirtyCanvas(true, false);
     }, 100);
+}
+
+/**
+ * Stops the timer for a specific node and calculates its execution time.
+ * Called when node execution completes (either by next node starting or explicit completion).
+ * @param {string|number} nodeId - The node ID whose timer should be stopped
+ * @param {number|null} executionTime - Execution time in ms, or null to calculate from start time
+ * @param {number|null} vramUsed - VRAM used in bytes, or null if not available
+ */
+function stopNodeTimer(nodeId, executionTime = null, vramUsed = null) {
+    if (!nodeId) return;
+    
+    const node = app.graph.getNodeById(nodeId);
+    if (!node) return;
+    
+    // Only process if this node has a start time (was actually running)
+    if (node.ty_et_start_time === undefined) return;
+    
+    // Calculate execution time if not provided
+    if (executionTime === null) {
+        executionTime = LiteGraph.getTime() - node.ty_et_start_time;
+    }
+    
+    // Set the final execution time
+    node.ty_et_execution_time = executionTime;
+    if (vramUsed !== null) {
+        node.ty_et_vram_used = vramUsed;
+    }
+    
+    // Clear start time to stop the live counter
+    delete node.ty_et_start_time;
+    
+    // Update running data if available
+    if (runningData) {
+        const index = runningData.nodes_execution_time.findIndex(x => x.node === nodeId);
+        const data = {
+            node: nodeId,
+            execution_time: executionTime,
+            vram_used: vramUsed ?? 0
+        };
+        if (index >= 0) {
+            runningData.nodes_execution_time[index] = data;
+        } else {
+            runningData.nodes_execution_time.push(data);
+        }
+    }
+}
+
+/**
+ * Handles execution completion from any source.
+ * Calculates execution time if not provided.
+ * @param {number|null} executionTime - Execution time in ms, or null to calculate from start time
+ */
+function handleExecutionEnd(executionTime = null) {
+    // Stop the currently executing node's timer first
+    if (currentExecutingNodeId) {
+        stopNodeTimer(currentExecutingNodeId, null, null);
+        currentExecutingNodeId = null;
+    }
+    
+    stopRefreshTimer();
+    
+    if (runningData) {
+        // Calculate execution time if not provided
+        if (executionTime === null && executionStartTime !== null) {
+            executionTime = LiteGraph.getTime() - executionStartTime;
+        }
+        
+        // Only update if we have a valid execution time and haven't already completed
+        if (executionTime !== null && runningData.total_execution_time === null) {
+            runningData.total_execution_time = executionTime;
+            refreshTable();
+        }
+    }
+    
+    // Clear any remaining node start times to stop individual counters
+    if (app.graph?._nodes) {
+        app.graph._nodes.forEach(function (node) {
+            delete node.ty_et_start_time;
+        });
+    }
+    
+    executionStartTime = null;
 }
 
 
@@ -55,9 +141,8 @@ function drawBadge(node, orig, restArgs) {
         if (!text) {
             return
         }
-        let fgColor = "white";
-        let bgColor = "#0F1F0F";
-        let visible = true;
+        const fgColor = "white";
+        const bgColor = "#0F1F0F";
 
         ctx.save();
         ctx.font = "12px sans-serif";
@@ -299,47 +384,95 @@ app.registerExtension({
     name: "TyDev-Utils.ExecutionTime",
     async setup() {
         setupClearExecutionCacheMenu();
+        
+        // Listen for node execution start
+        // Note: detail can be either a nodeId string directly, or an object {node: nodeId, prompt_id: ...}
+        // depending on ComfyUI version
         api.addEventListener("executing", ({detail}) => {
-            const nodeId = detail;
-            if (!nodeId) { // Finish
-                return
+            // Handle both formats: direct nodeId or object with node property
+            const nodeId = (typeof detail === 'object' && detail !== null) ? detail?.node : detail;
+            
+            // If nodeId is null/undefined, execution has finished
+            if (nodeId === null || nodeId === undefined) {
+                // Stop the last executing node's timer
+                if (currentExecutingNodeId) {
+                    stopNodeTimer(currentExecutingNodeId, null, null);
+                    currentExecutingNodeId = null;
+                }
+                
+                // Handle workflow completion
+                if (runningData && runningData.total_execution_time === null) {
+                    handleExecutionEnd(null);
+                }
+                return;
             }
-            const node = app.graph.getNodeById(nodeId)
+            
+            // A new node is starting - stop the previous node's timer first
+            if (currentExecutingNodeId && currentExecutingNodeId !== nodeId) {
+                stopNodeTimer(currentExecutingNodeId, null, null);
+            }
+            
+            // Start timer for the new node
+            currentExecutingNodeId = nodeId;
+            const node = app.graph.getNodeById(nodeId);
             if (node) {
                 node.ty_et_start_time = LiteGraph.getTime();
             }
         });
-
-        api.addEventListener("TyDev-Utils.ExecutionTime.executed", ({detail}) => {
-            const node = app.graph.getNodeById(detail.node)
-            if (node) {
-                node.ty_et_execution_time = detail.execution_time;
-                node.ty_et_vram_used = detail.vram_used;
+        
+        // Listen for native ComfyUI "executed" event (node completed)
+        // This is sent when a node finishes execution successfully
+        api.addEventListener("executed", ({detail}) => {
+            if (!detail) return;
+            
+            const nodeId = (typeof detail === 'object' && detail !== null) ? detail?.node : detail;
+            if (!nodeId) return;
+            
+            // Stop the timer for this node
+            stopNodeTimer(nodeId, null, null);
+            
+            // Clear current executing node if it matches
+            if (currentExecutingNodeId === nodeId) {
+                currentExecutingNodeId = null;
             }
-            const index = runningData.nodes_execution_time.findIndex(x => x.node === detail.node);
-            const data = {
-                node: detail.node,
-                execution_time: detail.execution_time,
-                vram_used: detail.vram_used
-            };
-            if (index > 0) {
-                runningData.nodes_execution_time[index] = data
-            } else {
-                runningData.nodes_execution_time.push(data)
-            }
+            
             refreshTable();
         });
 
-        api.addEventListener("execution_start", ({detail}) => {
-            if (runningData && runningData.total_execution_time == null) {
+        // Listen for individual node execution completion (custom event from backend with timing data)
+        api.addEventListener("TyDev-Utils.ExecutionTime.executed", ({detail}) => {
+            if (!detail || !runningData) {
                 return;
             }
+            
+            // Use the detailed timing data from backend
+            stopNodeTimer(detail.node, detail.execution_time, detail.vram_used);
+            
+            // Clear current executing node if it matches
+            if (currentExecutingNodeId === detail.node) {
+                currentExecutingNodeId = null;
+            }
+            
+            refreshTable();
+        });
+
+        // Listen for execution start (workflow begins)
+        api.addEventListener("execution_start", ({detail}) => {
+            // If there's an ongoing execution that hasn't completed, don't restart
+            if (runningData && runningData.total_execution_time === null) {
+                return;
+            }
+            
+            // Reset state for new execution
+            currentExecutingNodeId = null;
             lastRunningDate = runningData;
+            
             app.graph._nodes.forEach(function (node) {
-                delete node.ty_et_start_time
-                delete node.ty_et_execution_time
-                delete node.ty_et_vram_used
+                delete node.ty_et_start_time;
+                delete node.ty_et_execution_time;
+                delete node.ty_et_vram_used;
             });
+            
             runningData = {
                 nodes_execution_time: [],
                 total_execution_time: null
@@ -347,11 +480,34 @@ app.registerExtension({
             startRefreshTimer();
         });
 
+        // Listen for custom execution end event (primary mechanism)
         api.addEventListener("TyDev-Utils.ExecutionTime.execution_end", ({detail}) => {
-            stopRefreshTimer();
-            runningData.total_execution_time = detail.execution_time;
-            refreshTable();
-        })
+            handleExecutionEnd(detail?.execution_time ?? null);
+        });
+        
+        // Fallback: Listen for execution_success (native ComfyUI event)
+        api.addEventListener("execution_success", ({detail}) => {
+            if (runningData && runningData.total_execution_time === null) {
+                handleExecutionEnd(null);
+            }
+        });
+        
+        // Fallback: Listen for execution_error (handle errors gracefully)
+        api.addEventListener("execution_error", ({detail}) => {
+            if (runningData && runningData.total_execution_time === null) {
+                handleExecutionEnd(null);
+            }
+        });
+        
+        // Fallback: Listen for status changes (covers queue completion)
+        api.addEventListener("status", ({detail}) => {
+            // When queue becomes empty and we have an unfinished execution, complete it
+            if (detail?.exec_info?.queue_remaining === 0) {
+                if (runningData && runningData.total_execution_time === null) {
+                    handleExecutionEnd(null);
+                }
+            }
+        });
     },
     async nodeCreated(node, app) {
         if (!node.ty_et_swizzled) {
