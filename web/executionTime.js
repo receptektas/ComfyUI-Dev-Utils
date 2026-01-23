@@ -115,13 +115,22 @@ function formatExecutionTime(time) {
 
 // Reference: https://gist.github.com/zentala/1e6f72438796d74531803cc3833c039c
 function formatBytes(bytes, decimals) {
+    // Handle invalid values (undefined, null, NaN, negative)
+    if (bytes == null || isNaN(bytes) || bytes < 0) {
+        return 'N/A';
+    }
     if (bytes === 0) {
-        return '0 B'
+        return '0 B';
     }
     const k = 1024,
         dm = decimals || 2,
         sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'],
         i = Math.floor(Math.log(bytes) / Math.log(k));
+    
+    // Safeguard against out-of-bounds index
+    if (i < 0 || i >= sizes.length) {
+        return 'N/A';
+    }
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
@@ -134,12 +143,19 @@ function drawBadge(node, orig, restArgs) {
     if (!node.flags.collapsed && node.constructor.title_mode != LiteGraph.NO_TITLE) {
         let text = "";
         if (node.ty_et_execution_time !== undefined) {
-            text = formatExecutionTime(node.ty_et_execution_time) + " - vram " + formatBytes(node.ty_et_vram_used, 2);
+            const timeText = formatExecutionTime(node.ty_et_execution_time);
+            const vramText = formatBytes(node.ty_et_vram_used, 2);
+            // Only show vram if it's a valid, non-zero value
+            if (node.ty_et_vram_used != null && node.ty_et_vram_used > 0) {
+                text = `${timeText} - vram ${vramText}`;
+            } else {
+                text = timeText;
+            }
         } else if (node.ty_et_start_time !== undefined) {
             text = formatExecutionTime(LiteGraph.getTime() - node.ty_et_start_time);
         }
         if (!text) {
-            return
+            return;
         }
         const fgColor = "white";
         const bgColor = "#0F1F0F";
