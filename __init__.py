@@ -1,7 +1,8 @@
 from .nodes.url_download import UrlDownload
 from .nodes.upload_anything import UploadAnything
 from .nodes.execution_time import ExecutionTime
-from .nodes.log_console import *
+# NOTE: LogConsole SSE functionality is temporarily disabled
+# from .nodes.log_console import *
 
 # A dictionary that contains all nodes you want to export with their names
 # NOTE: names should be globally unique

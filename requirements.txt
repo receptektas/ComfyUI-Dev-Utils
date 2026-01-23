@@ -1,1 +1,1 @@
-aiohttp-sse
+# NOTE: aiohttp-sse removed - LogConsole SSE functionality is temporarily disabled
