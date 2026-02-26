@@ -1,6 +1,19 @@
-import {app} from "../../../scripts/app.js";
-import {api} from "../../../scripts/api.js";
-import {$el} from "../../../scripts/ui.js";
+let app, api, $el;
+if (window?.comfyAPI?.app?.app) {
+    ({ app } = window.comfyAPI.app);
+} else {
+    ({ app } = await import("../../../scripts/app.js"));
+}
+if (window?.comfyAPI?.api?.api) {
+    ({ api } = window.comfyAPI.api);
+} else {
+    ({ api } = await import("../../../scripts/api.js"));
+}
+if (window?.comfyAPI?.ui?.$el) {
+    ({ $el } = window.comfyAPI.ui);
+} else {
+    ({ $el } = await import("../../../scripts/ui.js"));
+}
 
 function addScript(src) {
     $el("script", {
